@@ -536,7 +536,7 @@
     recog.onresult = e => {
       let text = "", final = false;
       for (const r of e.results) { text += r[0].transcript; if (r.isFinal) final = true; }
-      setStatus("Hearing: " + text);
+      setStatus("👂 Hearing: " + text);
       if (final) handleMessage(text);
     };
     recog.onerror = e => {
@@ -562,10 +562,32 @@
     micBtn.textContent = handsFree ? "■ አቁም · Stop" : "▶ ጀምር · Start";
   }
 
+
+  // First press of Start: Enana greets out loud, which also proves the sound works
+  let greeted = false;
+  async function greet() {
+    const g = GIRLS[0], text = "እኔ እናና ነኝ። እንኳን ደህና መጡ! ስማችንን ጠርተው ያውሩን።";
+    busy = true; setStatus("Sound check — Enana is saying hello… 🔊");
+    let audio = null;
+    try {
+      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: g.id, text }), signal: AbortSignal.timeout(30000) });
+      audio = (await r.json()).audio || null;
+    } catch (_) {}
+    await speakAsync(g, text, audio);
+    busy = false;
+    setStatus(audio ? "Did you hear Enana? Now call a name and talk." : "Couldn't load Enana's voice — check the codespace terminal.");
+    if (handsFree) startListening();
+  }
+
   micBtn.addEventListener("click", () => {
     ensureAudio();
     if (handsFree) { stopListening(true); setStatus("Stopped. Press Start to talk again."); }
-    else { handsFree = true; startListening(); }
+    else {
+      handsFree = true;
+      if (!greeted) { greeted = true; greet(); }   // first Start: Enana says hello out loud (sound check)
+      else startListening();
+    }
   });
 
   // Welcome
