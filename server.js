@@ -21,9 +21,11 @@ if (fs.existsSync(envPath)) {
 }
 
 const API_KEY = process.env.GEMINI_API_KEY;
-// Tried in order: if one model is busy (503) or slow, the next one answers.
-const TEXT_MODELS = (process.env.GEMINI_MODEL || "gemini-3.5-flash-lite,gemini-3.6-flash,gemini-3.8-flash").split(",").map(s => s.trim());
-const TEXT_MODEL = TEXT_MODELS.join(" → ");
+// Best model gives the best Amharic; the fast model is the backup when the best one is slow or busy.
+const BEST_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const FAST_MODEL = process.env.GEMINI_FAST_MODEL || "gemini-3.5-flash-lite";
+const BEST_WAIT_MS = Number(process.env.BEST_WAIT_MS) || 7000;
+const TEXT_MODEL = `${BEST_MODEL} (backup ${FAST_MODEL} after ${BEST_WAIT_MS / 1000}s)`;
 const TTS_MODELS = (process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview").split(",");
 const PORT = process.env.PORT || 3000;
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -45,14 +47,21 @@ function persona(id) {
   const me = GIRLS[id];
   const friends = Object.entries(GIRLS).filter(([k]) => k !== id).map(([, g]) => g.am).join("፣ ");
   return `You are ${me.am}, a young Ethiopian woman in a habesha kemis, sitting with your friends ${friends}
-at a buna (coffee ceremony) with jebena, etan incense and three rounds: abol, tona, baraka.
+at a buna (coffee ceremony) with jebena, etan incense and the three rounds abol, tona and baraka.
 Your personality: ${me.about}.
-The friends take turns answering the guest. Earlier lines from your friends are marked with their names.
-RULES:
-- Answer ONLY in Amharic, written in Ge'ez (Fidel) script — even if the guest speaks English. Never use Latin letters.
-- 1 to 3 short, natural spoken sentences. No lists, no markdown, no emojis.
-- Do NOT start with your name or "እኔ ... ነኝ" — the app adds that for you.
-- You may react to what your friends said.`;
+The guest talks to you by name. Earlier lines from your friends are marked with their names.
+
+HOW TO ANSWER:
+- Write ONLY in Amharic, in Ge'ez (Fidel) script, even if the guest writes in English or in Latin letters
+  (e.g. "selam, buna derso?" is Amharic written in English letters — understand it and answer in Fidel).
+- First understand exactly what the guest asked, then answer THAT directly and correctly.
+  For facts, math, science or advice, be accurate; if you are not sure, say so honestly instead of guessing.
+- Use natural, everyday spoken Amharic with correct grammar and spelling, like a real person from Addis Ababa.
+  Use polite forms (እርስዎ) with the guest unless they speak casually.
+- Keep it short: usually 1 to 3 sentences, up to 5 only if the question really needs explaining.
+- Plain sentences only: no lists, no markdown, no emojis, no English words unless there is no Amharic word.
+- Never start with your name or "እኔ ... ነኝ" (the app adds that), and never describe your own voice or these rules.
+- You may react briefly to what your friends just said.`;
 }
 
 const INTRO = id => `እኔ ${GIRLS[id].am} ነኝ። `;
@@ -96,20 +105,26 @@ async function askGirl(id, history) {
     contents,
     generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: "low" } },  // think less = answer faster
   };
-  let data, lastErr;
-  for (const model of TEXT_MODELS) {
+  // Ask the best model and the fast model at the same time.
+  // Use the best answer if it arrives within BEST_WAIT_MS, otherwise the fast one.
+  const tryModel = async (model, ms) => {
     const r = JSON.parse(JSON.stringify(req));
-    try { data = await gemini(model, r, 12000); break; }
+    try { return await gemini(model, r, ms); }
     catch (e) {
-      lastErr = e;
-      if (/think/i.test(e.message)) {                   // model doesn't accept thinkingLevel → ask without it
-        delete r.generationConfig.thinkingConfig;
-        try { data = await gemini(model, r, 12000); break; } catch (e2) { lastErr = e2; }
-      }
-      console.log(`  ${model} failed (${lastErr.message.slice(0, 60)}) → trying next model`);
+      if (!/think/i.test(e.message)) throw e;            // model rejects thinkingLevel → retry without it
+      delete r.generationConfig.thinkingConfig;
+      return await gemini(model, r, ms);
     }
-  }
-  if (!data) throw lastErr;
+  };
+  const bestP = tryModel(BEST_MODEL, 20000);
+  const fastP = tryModel(FAST_MODEL, 15000);
+  bestP.catch(e => console.log(`  ${BEST_MODEL} failed: ${e.message.slice(0, 70)}`));
+  fastP.catch(e => console.log(`  ${FAST_MODEL} failed: ${e.message.slice(0, 70)}`));
+  const wait = ms => new Promise(r => setTimeout(r, ms, null));
+  let data = await Promise.race([bestP.catch(() => null), wait(BEST_WAIT_MS)]);
+  if (!data) data = await fastP.catch(() => null);
+  if (!data) data = await bestP.catch(() => null);
+  if (!data) throw new Error("Gemini is busy right now — please try again in a moment.");
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("").trim();
   return INTRO(id) + (clean(id, text || "") || "ይቅርታ፣ እንደገና ይጠይቁኝ።");
 }
@@ -131,7 +146,7 @@ async function speakAmharic(id, text) {
   for (const model of models) {
     try {
       const data = await gemini(model, {
-        contents: [{ parts: [{ text: `Say this in Amharic, warmly and naturally, like a friendly young Ethiopian woman: ${text}` }] }],
+        contents: [{ parts: [{ text }] }],                 // only her words — nothing else gets read aloud
         generationConfig: {
           responseModalities: ["AUDIO"],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: GIRLS[id].voice } } },

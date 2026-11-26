@@ -24,14 +24,14 @@
   #bubble::after { content:""; position:absolute; left:50%; bottom:-10px; transform:translateX(-50%);
     border:10px solid transparent; border-top-color:#fffdf8; border-bottom:0; }
 
-  .chat { display:flex; flex-wrap:wrap; gap:8px; max-width:1100px; margin:0 auto; padding:12px; }
-  .chat input { flex:1 1 220px; font:inherit; padding:12px 14px; border-radius:10px; border:0; }
-  .chat button, .chat select { font:inherit; padding:12px 16px; border:0; border-radius:10px; cursor:pointer; }
-  .chat button { background:#1f7a3a; color:#fff; white-space:nowrap; }
-  #micBtn { background:#8b2a1d; }
-  #micBtn.on { background:#c8202f; animation:pulse 1.2s ease-in-out infinite; }
-  .chat :focus-visible { outline:3px solid #e3b23c; outline-offset:2px; }
-  @keyframes pulse { 50% { box-shadow:0 0 0 8px rgba(227,178,60,0); } 0%,100% { box-shadow:0 0 0 0 rgba(227,178,60,.7); } }
+  .controls { display:flex; align-items:center; gap:16px; max-width:1100px; margin:0 auto; padding:14px 12px 6px; }
+  #micBtn { flex:none; font:600 18px/1 "Noto Sans Ethiopic", system-ui, sans-serif; color:#fff; background:#1f7a3a;
+            border:0; border-radius:999px; padding:16px 26px; min-height:56px; cursor:pointer; }
+  #micBtn.on { background:#b3202b; animation:pulse 1.4s ease-in-out infinite; }
+  #micBtn:focus-visible { outline:3px solid #e3b23c; outline-offset:3px; }
+  #micBtn:disabled { background:#555; cursor:not-allowed; }
+  @keyframes pulse { 0%,100% { box-shadow:0 0 0 0 rgba(227,178,60,.7); } 50% { box-shadow:0 0 0 10px rgba(227,178,60,0); } }
+  #wave { flex:1; width:100%; height:64px; display:block; }
   .status { max-width:1100px; margin:0 auto; padding:0 12px 18px; color:#e9c38f; font-size:14px; }
 
   /* ---------- Animations ---------- */
@@ -147,16 +147,11 @@
   <div id="bubble" aria-live="polite"><b id="bubbleName"></b><span id="bubbleText"></span></div>
 </div>
 
-<form class="chat" id="chatForm">
-  <button type="button" id="micBtn" aria-pressed="false">🎤 አውሩ · Talk</button>
-  <select id="langSel" aria-label="The language you speak">
-    <option value="am-ET">እኔ አማርኛ እናገራለሁ</option>
-    <option value="en-US">I speak English</option>
-  </select>
-  <input id="chatInput" placeholder="ጻፉ ወይም ተናገሩ… (Type or speak)" autocomplete="off">
-  <button type="submit">ላክ · Send</button>
-</form>
-<p id="status" class="status">🎤 አውሩ ይጫኑ እና ይናገሩ። ልጃገረዶቹ በተራ ይመልሳሉ። (Press Talk and speak. The girls answer in turn.)</p>
+<div class="controls">
+  <button type="button" id="micBtn" aria-pressed="false">▶ ጀምር · Start</button>
+  <canvas id="wave" aria-hidden="true"></canvas>
+</div>
+<p id="status" class="status">ጀምርን ይጫኑ፣ ከዚያ ስም ጠርተው ይናገሩ — “እናና…”፣ “ቤዛ…” ወይም ሁላችሁም። (Press Start, then call a name.)</p>
 
 <script>
 {
@@ -343,6 +338,41 @@
   }
   // (grass removed for a cleaner look)
 
+
+  /* ================= WAVE: live while a girl talks, gentle while listening ================= */
+  const wave = { analyser: null, fake: false, color: "#e3b23c" };
+  {
+    const cv = document.getElementById("wave"), ctx = cv.getContext("2d");
+    let buf = new Uint8Array(1024), t = 0;
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+      if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      const mid = H / 2; t += 0.05;
+      ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath();
+      if (wave.analyser) {                           // real voice
+        if (buf.length !== wave.analyser.fftSize) buf = new Uint8Array(wave.analyser.fftSize);
+        wave.analyser.getByteTimeDomainData(buf);
+        ctx.strokeStyle = wave.color;
+        for (let i = 0; i < buf.length; i++) {
+          const x = i / (buf.length - 1) * W, y = mid + (buf[i] - 128) / 128 * mid * 1.8;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+      } else {
+        const amp = wave.fake ? mid * (.35 + .3 * Math.sin(t * 7)) : (listening ? mid * .28 : 1.5);
+        ctx.strokeStyle = wave.fake ? wave.color : (listening ? "#5bb04a" : "#6b5544");
+        for (let x = 0; x <= W; x += 4) {
+          const y = mid + Math.sin(x / 28 + t * 3) * amp * Math.sin(Math.PI * x / W);
+          x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+      }
+      ctx.stroke();
+      requestAnimationFrame(draw);
+    };
+    requestAnimationFrame(draw);
+  }
+
   /* ================= TALKING ================= */
   const bubble = document.getElementById("bubble");
   const bubbleName = document.getElementById("bubbleName");
@@ -392,7 +422,8 @@
         const bytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
         const buf = await audioCtx.decodeAudioData(bytes.buffer);
         const src = audioCtx.createBufferSource(), an = audioCtx.createAnalyser();
-        an.fftSize = 512; src.buffer = buf; src.connect(an); an.connect(audioCtx.destination);
+        an.fftSize = 1024; src.buffer = buf; src.connect(an); an.connect(audioCtx.destination);
+        wave.analyser = an; wave.color = g.color;
         const data = new Uint8Array(an.fftSize);
         let raf;
         const tick = () => {                  // lip sync from loudness
@@ -402,33 +433,43 @@
           setMouth(g, Math.min(1, Math.max(0, (rms - .02) * 9)));
           raf = requestAnimationFrame(tick);
         };
-        src.onended = () => { cancelAnimationFrame(raf); done(); };
+        src.onended = () => { cancelAnimationFrame(raf); wave.analyser = null; done(); };
         src.start(); tick();
         return;
       } catch (e) { console.error("Audio play failed", e); }
     }
     // No audio: animate the mouth for a reading-length time
     let open = false;
+    wave.fake = true; wave.color = g.color;
     const iv = setInterval(() => { open = !open; setMouth(g, open ? Math.random() * .8 + .2 : 0); }, 140);
-    setTimeout(() => { clearInterval(iv); done(); }, Math.max(2000, text.length * 90));
+    setTimeout(() => { clearInterval(iv); wave.fake = false; done(); }, Math.max(2000, text.length * 90));
   }
 
-  /* ================= CONVERSATION (turns rotate) ================= */
+  /* ================= CONVERSATION: answer only when called by name ================= */
+  // Names as Chrome may hear them, in Amharic script and in English letters
+  const CALL = {
+    enana:     /እናና|ኤናና|እናኒ|\b[eai]h?nn?ah?\b|\benana\b|\benanna\b/i,
+    suzi:      /ሱዚ|ሱዝ|\bsu[zs]+(i|y|ie|ey)\b|\bsuzie\b|\bsusie\b/i,
+    beza:      /ቤዛ|\bbe[zs]+a\b|\bbezza\b|\bbessa\b/i,
+    tesfanesh: /ተስፋነሽ|ተስፋ|\btesfa(nesh|nish)?\b|\btesfanesh\b/i,
+  };
+  const EVERYONE = /ሁላችሁም|ሁላችሁ|everyone|everybody|all of you|\bguys\b/i;
+
+  function whoIsCalled(msg) {
+    if (EVERYONE.test(msg)) return GIRLS.slice();
+    return GIRLS.map(g => ({ g, m: msg.match(CALL[g.id]) }))
+      .filter(x => x.m).sort((a, b) => a.m.index - b.m.index).map(x => x.g);
+  }
+
   const history = [];               // {role:"user"|"model", speaker?, text}
-  let turn = 0, busy = false;
+  let busy = false;
+  const speakAsync = (g, text, audio) => new Promise(res => speak(g, text, audio, res));
 
-  async function handleMessage(msg) {
-    msg = msg.trim();
-    if (!msg || busy) return;
-    busy = true;
-    stopListening(false);           // don't let them hear themselves
-    const g = GIRLS[turn % GIRLS.length];
-    setActive(g); showBubble(g, "…");
-    setStatus(`You: “${msg}” — ${g.en} is thinking…`);
-    history.push({ role: "user", text: msg });
-
-    let reply, audio = null, problem = "";
+  async function answerAs(g) {
     const t0 = Date.now(), secs = () => ((Date.now() - t0) / 1000).toFixed(1) + "s";
+    setActive(g); showBubble(g, "…");
+    setStatus(`${g.am} (${g.en}) is thinking…`);
+    let reply, audio = null, problem = "";
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -439,12 +480,9 @@
       if (!res.ok) throw new Error(data.error || "Server error");
       reply = data.reply;
       history.push({ role: "model", speaker: g.id, text: reply });
-      turn++;                         // next message goes to the next girl
-
-      // Show the words right away, then fetch her voice
-      showBubble(g, reply);
+      showBubble(g, reply);           // words first…
       setStatus(`Answer in ${secs()} — ${g.en}'s voice is loading…`);
-      try {
+      try {                           // …then her voice
         const vr = await fetch("/api/tts", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ speaker: g.id, text: reply }),
@@ -453,30 +491,44 @@
         const vd = await vr.json();
         if (!vr.ok) throw new Error(vd.error || "voice error");
         audio = vd.audio;
-      } catch (e) { problem = "Voice problem: " + e.message + " (showing text only)"; }
+      } catch (e) { problem = "Voice problem: " + e.message + " (text only)"; }
     } catch (err) {
-      history.pop();
-      reply = `እኔ ${g.am} ነኝ። ይቅርታ፣ አሁን መመለስ አልቻልኩም።`;
-      problem = "Problem: " + (err.name === "TimeoutError" ? "Gemini took too long" : err.message) + " — check the codespace terminal.";
+      reply = `ይቅርታ፣ አሁን መመለስ አልቻልኩም።`;
+      problem = "Problem: " + (err.name === "TimeoutError" ? "Gemini took too long" : err.message);
     }
     setStatus(problem || `${g.am} (${g.en}) is talking… (${secs()})`);
-    speak(g, reply, audio, () => {
-      busy = false;
-      const next = GIRLS[turn % GIRLS.length];
-      if (handsFree) startListening();
-      else if (!problem) setStatus(`Next answer: ${next.am} (${next.en}). Press Talk or type.`);
-    });
+    await speakAsync(g, reply, audio);
+    return problem;
+  }
+
+  async function handleMessage(msg) {
+    msg = msg.trim();
+    if (!msg || busy) return;
+    const called = whoIsCalled(msg);
+    if (!called.length) {             // no name → they stay quiet
+      setStatus(`“${msg}” — call a name first: እናና Enana, ሱዚ Suzi, ቤዛ Beza, ተስፋነሽ Tesfanesh (or ሁላችሁም = everyone).`);
+      return;
+    }
+    busy = true;
+    stopListening(false);             // don't let them hear themselves
+    history.push({ role: "user", text: msg });
+    let problem = "";
+    for (const g of called) problem = (await answerAs(g)) || problem;
+    busy = false;
+    if (handsFree) startListening();
+    else if (!problem) setStatus("Call a name and speak or type again.");
   }
 
   /* ================= LISTENING (speech recognition) ================= */
   // Chrome/Edge only, over http://localhost or https (Codespaces gives https).
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const micBtn = document.getElementById("micBtn"), langSel = document.getElementById("langSel");
+  const micBtn = document.getElementById("micBtn");
+  let recLang = "am-ET";            // Amharic first; falls back to English if this browser can't hear Amharic
   let recog = null, listening = false, handsFree = false;
 
   if (!SR) {
     micBtn.disabled = true;
-    setStatus("Voice input needs Chrome or Edge. You can still type.");
+    setStatus("Voice needs Chrome or Edge — please open this page in Chrome.");
   } else {
     recog = new SR();
     recog.interimResults = true;
@@ -489,14 +541,14 @@
     };
     recog.onerror = e => {
       if (e.error === "not-allowed") { handsFree = false; setStatus("Microphone blocked — allow mic access in the browser."); }
-      else if (e.error === "language-not-supported") { setStatus("This browser can't hear Amharic. Switch to English or type in Amharic."); handsFree = false; }
+      else if (e.error === "language-not-supported" && recLang !== "en-US") { recLang = "en-US"; setStatus("This browser can't hear Amharic — listening in English instead."); }
     };
     recog.onend = () => { listening = false; if (handsFree && !busy) startListening(); micUI(); };
   }
   function startListening() {
     if (!recog || listening) return;
-    recog.lang = langSel.value;
-    try { recog.start(); listening = true; setStatus(`Listening… speak now. Next: ${GIRLS[turn % 4].am}`); } catch (_) {}
+    recog.lang = recLang;
+    try { recog.start(); listening = true; setStatus("Listening… call a name: Enana, Suzi, Beza or Tesfanesh."); } catch (_) {}
     micUI();
   }
   function stopListening(turnOff = true) {
@@ -507,24 +559,18 @@
   function micUI() {
     micBtn.classList.toggle("on", handsFree);
     micBtn.setAttribute("aria-pressed", handsFree);
-    micBtn.textContent = handsFree ? "■ አቁም · Stop" : "🎤 አውሩ · Talk";
+    micBtn.textContent = handsFree ? "■ አቁም · Stop" : "▶ ጀምር · Start";
   }
 
   micBtn.addEventListener("click", () => {
     ensureAudio();
-    if (handsFree) { stopListening(true); setStatus("Stopped."); }
+    if (handsFree) { stopListening(true); setStatus("Stopped. Press Start to talk again."); }
     else { handsFree = true; startListening(); }
-  });
-  document.getElementById("chatForm").addEventListener("submit", e => {
-    e.preventDefault(); ensureAudio();
-    const input = document.getElementById("chatInput");
-    const msg = input.value; input.value = "";
-    handleMessage(msg);
   });
 
   // Welcome
-  setTimeout(() => { setActive(GIRLS[0]); showBubble(GIRLS[0], "እኔ እናና ነኝ። እንኳን ደህና መጡ! ቡና ጠጡ። 🎤 አውሩ ይጫኑ።"); }, 700);
-  window.GIRLS = GIRLS; window.speak = speak; // handy for testing in the console
+  setTimeout(() => { setActive(GIRLS[0]); showBubble(GIRLS[0], "እኔ እናና ነኝ። እንኳን ደህና መጡ! ስማችንን ጠርተው ያውሩን።"); }, 700);
+  window.GIRLS = GIRLS; window.speak = speak; window.ask = handleMessage; // for testing: ask("Beza, selam")
 }
 </script>
 </body>
