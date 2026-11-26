@@ -21,7 +21,9 @@ if (fs.existsSync(envPath)) {
 }
 
 const API_KEY = process.env.GEMINI_API_KEY;
-const TEXT_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";          // better Amharic than lite
+// Tried in order: if one model is busy (503) or slow, the next one answers.
+const TEXT_MODELS = (process.env.GEMINI_MODEL || "gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash-lite").split(",").map(s => s.trim());
+const TEXT_MODEL = TEXT_MODELS.join(" → ");
 const TTS_MODELS = (process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview").split(",");
 const PORT = process.env.PORT || 3000;
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -94,13 +96,20 @@ async function askGirl(id, history) {
     contents,
     generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: "low" } },  // think less = answer faster
   };
-  let data;
-  try { data = await gemini(TEXT_MODEL, req); }
-  catch (e) {
-    if (!/think/i.test(e.message)) throw e;            // model doesn't accept thinkingLevel → ask without it
-    delete req.generationConfig.thinkingConfig;
-    data = await gemini(TEXT_MODEL, req);
+  let data, lastErr;
+  for (const model of TEXT_MODELS) {
+    const r = JSON.parse(JSON.stringify(req));
+    try { data = await gemini(model, r); break; }
+    catch (e) {
+      lastErr = e;
+      if (/think/i.test(e.message)) {                   // model doesn't accept thinkingLevel → ask without it
+        delete r.generationConfig.thinkingConfig;
+        try { data = await gemini(model, r); break; } catch (e2) { lastErr = e2; }
+      }
+      console.log(`  ${model} failed (${lastErr.message.slice(0, 60)}) → trying next model`);
+    }
   }
+  if (!data) throw lastErr;
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("").trim();
   return INTRO(id) + (clean(id, text || "") || "ይቅርታ፣ እንደገና ይጠይቁኝ።");
 }
