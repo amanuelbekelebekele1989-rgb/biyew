@@ -1,0 +1,12 @@
+{
+  "name": "Buna Girl",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "Enana", "onAutoForward": "openBrowser" }
+  },
+  "secrets": {
+    "GEMINI_API_KEY": { "description": "Your Gemini API key from Google AI Studio" }
+  },
+  "postAttachCommand": "node server.js"
+}

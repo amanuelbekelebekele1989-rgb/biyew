@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buna Ceremony – Animated Girl</title>
+<style>
+  :root { --wall:#f3d9b1; --floor:#b9824f; --ink:#2b1a10; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#2b1a10; font:16px/1.5 system-ui, sans-serif; color:#fff; }
+  .stage { position:relative; max-width:900px; margin:0 auto; }
+  svg { display:block; width:100%; height:auto; }
+
+  /* ---------- Speech bubble (HTML, so AI text is easy to show) ---------- */
+  #bubble {
+    position:absolute; left:52%; top:4%; max-width:42%;
+    background:#fff; color:var(--ink); padding:12px 16px; border-radius:16px;
+    box-shadow:0 6px 20px rgba(0,0,0,.25); opacity:0; transform:translateY(8px);
+    transition:opacity .3s, transform .3s; pointer-events:none; font-size:clamp(13px,1.8vw,16px);
+  }
+  #bubble.show { opacity:1; transform:none; }
+  #bubble::after { content:""; position:absolute; left:-10px; top:24px;
+    border:10px solid transparent; border-right-color:#fff; border-left:0; }
+
+  /* ---------- Chat bar ---------- */
+  .chat { display:flex; gap:8px; max-width:900px; margin:0 auto; padding:12px; }
+  .chat input { flex:1; font-size:16px; padding:12px 14px; border-radius:10px; border:0; }
+  .chat button { font-size:16px; padding:12px 18px; border:0; border-radius:10px;
+    background:#1f7a3a; color:#fff; cursor:pointer; }
+  .chat button:focus-visible, .chat input:focus-visible { outline:3px solid #f2c230; }
+  #micBtn { background:#8b2a1d; white-space:nowrap; }
+  #micBtn.on { background:#c8202f; animation:pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(242,194,48,.7)} 50%{box-shadow:0 0 0 8px rgba(242,194,48,0)} }
+  .status { max-width:900px; margin:0 auto; padding:0 12px 16px; color:#e9c38f; font-size:14px; }
+
+  /* ---------- Animations ---------- */
+  /* Pouring: the arm + jebena rotate around the shoulder */
+  #pourArm { transform-box:view-box; transform-origin:365px 262px; animation:pour 7s ease-in-out infinite; }
+  @keyframes pour { 0%,15%{transform:rotate(0)} 30%,60%{transform:rotate(25deg)} 75%,100%{transform:rotate(0)} }
+
+  #stream { animation:stream 7s linear infinite; }
+  @keyframes stream { 0%,31%{opacity:0} 34%,57%{opacity:1} 60%,100%{opacity:0} }
+
+  #cupFill { transform-box:fill-box; transform-origin:center bottom; animation:fill 7s linear infinite; }
+  @keyframes fill { 0%,33%{transform:scaleY(.1);opacity:0} 36%{opacity:1} 58%,90%{transform:scaleY(1);opacity:1} 100%{opacity:0} }
+
+  /* Blinking */
+  .eye { transform-box:fill-box; transform-origin:center; animation:blink 4.5s infinite; }
+  @keyframes blink { 0%,94%,100%{transform:scaleY(1)} 97%{transform:scaleY(.1)} }
+
+  /* Gentle head movement */
+  #head { transform-box:view-box; transform-origin:330px 240px; animation:bob 5s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{transform:rotate(-1.5deg)} 50%{transform:rotate(2deg)} }
+
+  /* Smoke from incense + roasting beans */
+  .smoke { fill:none; stroke:#fff; stroke-width:4; stroke-linecap:round; opacity:0;
+           animation:smoke 4s ease-out infinite; }
+  @keyframes smoke { 0%{opacity:0; transform:translateY(0) scale(.8)}
+                     20%{opacity:.55} 100%{opacity:0; transform:translateY(-90px) scale(1.4)} }
+
+  /* Coals glow */
+  .coal { animation:glow 1.6s ease-in-out infinite alternate; }
+  @keyframes glow { from{fill:#c0391b} to{fill:#ff9a2e} }
+
+  /* Beans shaking in the roasting pan */
+  #beans { animation:shake .5s ease-in-out infinite alternate; }
+  @keyframes shake { from{transform:translateX(-3px)} to{transform:translateX(3px)} }
+
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <svg id="scene" viewBox="0 0 800 560" role="img" aria-label="A girl in a habesha kemis pouring coffee from a jebena">
+    <defs>
+      <!-- Tibeb: the woven border pattern of a habesha kemis -->
+      <pattern id="tibeb" width="16" height="16" patternUnits="userSpaceOnUse">
+        <rect width="16" height="16" fill="#1f7a3a"/>
+        <rect y="5" width="16" height="6" fill="#f2c230"/>
+        <path d="M8 3 L13 8 L8 13 L3 8 Z" fill="#c8202f"/>
+        <circle cx="8" cy="8" r="1.6" fill="#fff"/>
+      </pattern>
+      <linearGradient id="wallG" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#f6e2c0"/><stop offset="1" stop-color="#e9c38f"/>
+      </linearGradient>
+      <radialGradient id="clay" cx=".35" cy=".35" r=".8">
+        <stop offset="0" stop-color="#5a3a26"/><stop offset="1" stop-color="#1c110b"/>
+      </radialGradient>
+    </defs>
+
+    <!-- Room -->
+    <rect width="800" height="420" fill="url(#wallG)"/>
+    <rect y="420" width="800" height="140" fill="#b9824f"/>
+    <rect y="418" width="800" height="6" fill="#8a5a33"/>
+    <!-- Decorative wall stripe -->
+    <rect y="120" width="800" height="14" fill="url(#tibeb)" opacity=".75"/>
+
+    <!-- Mesob basket (background left) -->
+    <g transform="translate(70,300)">
+      <path d="M0 120 L10 40 Q45 -10 80 40 L90 120 Z" fill="#d9a441"/>
+      <path d="M8 60 H82 M5 85 H85 M3 108 H87" stroke="#8b2a1d" stroke-width="6"/>
+      <path d="M20 20 Q45 -25 70 20" fill="#c8202f"/>
+    </g>
+
+    <!-- Fresh grass on the floor (filled by JS) -->
+    <g id="grass"></g>
+
+    <!-- Charcoal brazier with roasting pan -->
+    <g transform="translate(130,380)">
+      <path d="M0 40 L70 40 L60 80 L10 80 Z" fill="#3a2418"/>
+      <ellipse cx="35" cy="40" rx="36" ry="9" fill="#2a1a10"/>
+      <circle class="coal" cx="22" cy="40" r="6"/><circle class="coal" cx="36" cy="38" r="7" style="animation-delay:.4s"/>
+      <circle class="coal" cx="50" cy="41" r="6" style="animation-delay:.8s"/>
+      <ellipse cx="35" cy="26" rx="44" ry="8" fill="#555"/>
+      <rect x="78" y="22" width="40" height="5" rx="2" fill="#555"/>
+      <g id="beans"></g>
+      <path class="smoke" d="M25 15 q-8 -15 0 -30 q8 -15 0 -30"/>
+      <path class="smoke" style="animation-delay:1.3s" d="M42 15 q8 -15 0 -30 q-8 -15 0 -30"/>
+      <path class="smoke" style="animation-delay:2.6s" d="M34 15 q-6 -15 0 -30 q6 -15 0 -30"/>
+    </g>
+
+    <!-- ===================== THE GIRL ===================== -->
+    <g id="girl">
+      <!-- Netela (shawl) behind body -->
+      <path d="M282 258 Q240 330 250 420 L300 410 Q290 320 310 262 Z" fill="#fbf7ee"/>
+      <path d="M250 420 L300 410" stroke="url(#tibeb)" stroke-width="10"/>
+
+      <!-- Skirt of the kemis (seated) -->
+      <path d="M282 312 Q245 390 212 468 L458 468 Q420 390 378 312 Z" fill="#fbf7ee"/>
+      <rect x="212" y="446" width="246" height="22" fill="url(#tibeb)"/>
+      <!-- Torso -->
+      <path d="M288 258 Q330 246 372 258 L380 320 Q330 332 280 320 Z" fill="#fbf7ee"/>
+      <!-- Center tibeb band -->
+      <path d="M322 250 L338 250 L346 446 L314 446 Z" fill="url(#tibeb)"/>
+      <!-- Neckline trim -->
+      <path d="M312 252 Q330 270 348 252" fill="none" stroke="url(#tibeb)" stroke-width="6"/>
+
+      <!-- Left arm resting on knee -->
+      <path d="M294 266 Q262 320 300 372" fill="none" stroke="#e9dfcc" stroke-width="20" stroke-linecap="round"/>
+      <circle cx="304" cy="374" r="10" fill="#8d5a3b"/>
+
+      <!-- Neck -->
+      <rect x="320" y="228" width="20" height="28" rx="6" fill="#7d4e33"/>
+
+      <!-- Head -->
+      <g id="head">
+        <!-- Hair (back + shuruba braids) -->
+        <ellipse cx="330" cy="186" rx="46" ry="48" fill="#1a0f0a"/>
+        <circle cx="330" cy="140" r="16" fill="#1a0f0a"/>
+        <ellipse cx="330" cy="200" rx="37" ry="42" fill="#8d5a3b"/>
+        <path d="M292 182 Q330 140 368 182 Q360 150 330 146 Q300 150 292 182 Z" fill="#1a0f0a"/>
+        <g stroke="#3a2418" stroke-width="2" fill="none">
+          <path d="M300 168 Q315 150 330 147"/><path d="M308 175 Q322 154 338 149"/><path d="M322 176 Q340 156 356 160"/>
+        </g>
+        <!-- Ears + earrings -->
+        <circle cx="293" cy="202" r="6" fill="#7d4e33"/><circle cx="367" cy="202" r="6" fill="#7d4e33"/>
+        <circle cx="293" cy="214" r="4" fill="#f2c230"/><circle cx="367" cy="214" r="4" fill="#f2c230"/>
+        <!-- Brows -->
+        <path d="M308 184 Q317 179 325 184 M335 184 Q343 179 352 184" stroke="#1a0f0a" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <!-- Eyes -->
+        <g class="eye"><ellipse cx="317" cy="195" rx="5" ry="5.5" fill="#1a0f0a"/><circle cx="318.5" cy="193.5" r="1.5" fill="#fff"/></g>
+        <g class="eye"><ellipse cx="343" cy="195" rx="5" ry="5.5" fill="#1a0f0a"/><circle cx="344.5" cy="193.5" r="1.5" fill="#fff"/></g>
+        <!-- Nose -->
+        <path d="M330 200 Q326 210 331 212" stroke="#6b4029" stroke-width="2" fill="none"/>
+        <!-- Cheeks -->
+        <circle cx="309" cy="212" r="6" fill="#c46a5a" opacity=".35"/><circle cx="351" cy="212" r="6" fill="#c46a5a" opacity=".35"/>
+        <!-- Mouth: closed smile + open (for talking) -->
+        <path id="mouthClosed" d="M320 222 Q330 230 340 222" stroke="#5a1e1e" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <ellipse id="mouthOpen" cx="330" cy="225" rx="7" ry="5" fill="#5a1e1e" opacity="0"/>
+        <!-- Small cross tattoo / forehead mark (common traditional decoration) -->
+        <path d="M330 168 v6 M327 171 h6" stroke="#2f4f6f" stroke-width="1.5"/>
+      </g>
+
+      <!-- Right arm + JEBENA (rotates to pour) -->
+      <g id="pourArm">
+        <path d="M366 264 Q392 300 424 314" fill="none" stroke="#e9dfcc" stroke-width="20" stroke-linecap="round"/>
+        <!-- Jebena: clay coffee pot -->
+        <path d="M437 296 Q414 300 424 330" fill="none" stroke="#2b1d16" stroke-width="6"/>
+        <rect x="436" y="278" width="18" height="36" rx="5" fill="url(#clay)"/>
+        <ellipse cx="445" cy="278" rx="12" ry="4" fill="#3a2418"/>
+        <path d="M462 324 Q474 312 484 296 L488 299 Q480 318 468 334 Z" fill="#2b1d16"/>
+        <circle cx="445" cy="338" r="27" fill="url(#clay)"/>
+        <path d="M425 340 Q445 352 465 340" stroke="#d9a441" stroke-width="2" fill="none"/>
+        <!-- Hand gripping handle -->
+        <circle cx="425" cy="314" r="10" fill="#8d5a3b"/>
+      </g>
+    </g>
+
+    <!-- Coffee stream from spout into first cup -->
+    <path id="stream" d="M457 346 Q459 390 459 436" stroke="#3b1f0e" stroke-width="4" fill="none" stroke-linecap="round" opacity="0"/>
+
+    <!-- Rekebot (tray) with cini cups -->
+    <g>
+      <rect x="430" y="448" width="190" height="12" rx="4" fill="#6b3f22"/>
+      <rect x="438" y="460" width="10" height="26" fill="#5a331b"/><rect x="602" y="460" width="10" height="26" fill="#5a331b"/>
+      <g id="cups"></g>
+      <ellipse id="cupFill" cx="459" cy="433" rx="10" ry="3" fill="#3b1f0e"/>
+    </g>
+
+    <!-- Incense burner (etan) -->
+    <g transform="translate(660,410)">
+      <path d="M0 10 L40 10 L32 44 L8 44 Z" fill="#7a3b1e"/>
+      <rect x="14" y="44" width="12" height="10" fill="#7a3b1e"/>
+      <ellipse cx="20" cy="10" rx="20" ry="5" fill="#4a2410"/>
+      <path class="smoke" d="M18 4 q-10 -18 0 -36 q10 -18 0 -36"/>
+      <path class="smoke" style="animation-delay:1.4s" d="M22 4 q10 -18 0 -36 q-10 -18 0 -36"/>
+      <path class="smoke" style="animation-delay:2.8s" d="M20 4 q-6 -18 4 -36 q8 -18 -2 -36"/>
+    </g>
+  </svg>
+
+  <div id="bubble" aria-live="polite"></div>
+</div>
+
+<form class="chat" id="chatForm">
+  <button type="button" id="micBtn" aria-pressed="false" title="Talk to her with your voice">🎤 Talk</button>
+  <input id="chatInput" placeholder="Speak, or type here… (e.g. “What is buna?”)" autocomplete="off">
+  <button type="submit">Send</button>
+</form>
+<p id="status" class="status">Press 🎤 Talk and speak. She will answer, then listen again.</p>
+
+<script>
+{
+  /* ---------- Build repeated scenery ---------- */
+  const svgNS = "http://www.w3.org/2000/svg";
+  const make = (tag, attrs) => { const el = document.createElementNS(svgNS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]); return el; };
+
+  // Grass blades
+  const grass = document.getElementById("grass");
+  for (let i = 0; i < 70; i++) {
+    const x = 200 + Math.random() * 480, y = 470 + Math.random() * 80, h = 10 + Math.random() * 14;
+    grass.appendChild(make("path", { d:`M${x} ${y} q${(Math.random()-.5)*10} ${-h/2} ${(Math.random()-.5)*12} ${-h}`,
+      stroke: i % 2 ? "#3f8f3a" : "#5bb04a", "stroke-width":3, fill:"none", "stroke-linecap":"round" }));
+  }
+  // Coffee beans in the roasting pan
+  const beans = document.getElementById("beans");
+  for (let i = 0; i < 14; i++) {
+    beans.appendChild(make("ellipse", { cx: 8 + Math.random()*54, cy: 22 + Math.random()*5, rx:3.5, ry:2.5,
+      fill: ["#4a2a14","#6b3a1a","#2f1a0c"][i%3] }));
+  }
+  // Cini cups (handle-less cups)
+  const cups = document.getElementById("cups");
+  [459, 497, 535, 573].forEach(x => {
+    cups.appendChild(make("path", { d:`M${x-11} 430 L${x+11} 430 L${x+7} 448 L${x-7} 448 Z`, fill:"#fff", stroke:"#ccc" }));
+    cups.appendChild(make("path", { d:`M${x-9} 437 h18`, stroke:"#1f7a3a", "stroke-width":2 }));
+  });
+
+  /* ---------- Girl API: call Girl.say(text) to make her talk ---------- */
+  const bubble = document.getElementById("bubble");
+  const mouthOpen = document.getElementById("mouthOpen");
+  const mouthClosed = document.getElementById("mouthClosed");
+  let talkTimer = null, hideTimer = null;
+
+  function startMouth() {
+    stopMouth();
+    let open = false;
+    talkTimer = setInterval(() => {
+      open = !open;
+      mouthOpen.setAttribute("opacity", open ? 1 : 0);
+      mouthOpen.setAttribute("ry", 3 + Math.random() * 4);
+      mouthClosed.setAttribute("opacity", open ? 0 : 1);
+    }, 130);
+  }
+  function stopMouth() {
+    clearInterval(talkTimer);
+    mouthOpen.setAttribute("opacity", 0);
+    mouthClosed.setAttribute("opacity", 1);
+  }
+
+  const Girl = {
+    // onDone runs when she finishes speaking (used to start listening again)
+    name: "Enana",
+    say(text, onDone) {
+      clearTimeout(hideTimer);
+      // She always introduces herself first: "I am Enana. ..."
+      text = String(text).replace(/^\s*(hi[,!.]?\s*)?(i am|i'm) enana[.!,]?\s*/i, "");
+      text = "I am " + this.name + ". " + text;
+      bubble.textContent = text;          // textContent: safe for AI output
+      bubble.classList.add("show");
+      startMouth();
+
+      let finished = false;
+      const done = () => {
+        if (finished) return; finished = true;
+        stopMouth();
+        hideTimer = setTimeout(() => bubble.classList.remove("show"), 4000);
+        if (onDone) onDone();
+      };
+
+      if ("speechSynthesis" in window) {   // Browser text-to-speech
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1; u.pitch = 1.25;
+        const female = speechSynthesis.getVoices().find(v => /female|samantha|zira|google us english/i.test(v.name));
+        if (female) u.voice = female;
+        u.onend = done; u.onerror = done;
+        speechSynthesis.speak(u);
+      } else {
+        setTimeout(done, Math.max(1500, text.length * 60)); // fallback: fake talking time
+      }
+    }
+  };
+  window.Girl = Girl; // so you can test from the console: Girl.say("Selam!")
+
+  /* ---------- AI: talks to Gemini through YOUR server (server.js) ---------- */
+  // The API key lives only in server.js / .env, never in this file.
+  const history = [];                 // the conversation so far, so she remembers context
+  const statusEl = document.getElementById("status");
+  const setStatus = t => statusEl.textContent = t;
+
+  async function getAIReply(message) {
+    history.push({ role: "user", text: message });
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ history: history.slice(-20) })   // last 20 turns
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Server error");
+    history.push({ role: "model", text: data.reply });
+    return data.reply;
+  }
+
+  async function handleMessage(msg) {
+    msg = msg.trim();
+    if (!msg) return;
+    if (busy) return;
+    busy = true;
+    stopListening(false);               // don't let her hear herself
+    setStatus("You said: “" + msg + "” — she's thinking…");
+    bubble.textContent = "…"; bubble.classList.add("show");
+    let reply, problem = "";
+    try { reply = await getAIReply(msg); }
+    catch (err) {
+      history.pop();
+      reply = "Sorry, I couldn't think of an answer just now.";
+      problem = "Problem: " + err.message + " (is server.js running and is the API key right?)";
+      console.error(err);
+    }
+    setStatus(problem || "She's talking…");
+    Girl.say(reply, () => {
+      busy = false;
+      if (handsFree) startListening();  // conversation continues by voice
+      else if (!problem) setStatus("Press 🎤 Talk to speak again.");
+    });
+  }
+
+  /* ---------- LISTENING: browser speech recognition ---------- */
+  // Works in Chrome and Edge. It needs http://localhost or https (not file://).
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = document.getElementById("micBtn");
+  let recog = null, listening = false, handsFree = false, busy = false;
+
+  if (!SR) {
+    micBtn.disabled = true;
+    setStatus("Voice input isn't supported in this browser. Use Chrome or Edge, or type instead.");
+  } else {
+    recog = new SR();
+    recog.lang = "en-US";             // try "am-ET" for Amharic
+    recog.interimResults = true;
+    recog.continuous = false;         // one sentence at a time
+
+    recog.onresult = e => {
+      let text = "", final = false;
+      for (const r of e.results) { text += r[0].transcript; if (r.isFinal) final = true; }
+      setStatus("Hearing: " + text);
+      if (final) handleMessage(text);
+    };
+    recog.onerror = e => {
+      if (e.error === "not-allowed") { handsFree = false; setStatus("Microphone blocked. Allow mic access in the browser."); }
+      else if (e.error === "no-speech") setStatus("I didn't hear anything. Still listening…");
+    };
+    recog.onend = () => {
+      listening = false;
+      // silence timed out? keep listening, unless she's thinking or talking
+      if (handsFree && !busy) startListening();
+      micUI();
+    };
+  }
+
+  function startListening() {
+    if (!recog || listening) return;
+    try { recog.start(); listening = true; setStatus("Listening… speak now."); } catch (_) {}
+    micUI();
+  }
+  function stopListening(turnOff = true) {
+    if (turnOff) handsFree = false;
+    if (recog && listening) recog.abort();
+    listening = false; micUI();
+  }
+  function micUI() {
+    micBtn.classList.toggle("on", handsFree);
+    micBtn.setAttribute("aria-pressed", handsFree);
+    micBtn.textContent = handsFree ? "■ Stop" : "🎤 Talk";
+  }
+
+  micBtn.addEventListener("click", () => {
+    if (handsFree) { stopListening(true); speechSynthesis.cancel(); setStatus("Stopped. Press 🎤 Talk to start again."); }
+    else { handsFree = true; speechSynthesis.cancel(); startListening(); }
+  });
+
+  document.getElementById("chatForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const input = document.getElementById("chatInput");
+    const msg = input.value; input.value = "";
+    handleMessage(msg);
+  });
+
+  setTimeout(() => { bubble.textContent = "I am Enana. Selam! Press Talk and speak to me."; bubble.classList.add("show"); }, 800);
+}
+</script>
+</body>
+</html>
