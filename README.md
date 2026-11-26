@@ -1,17 +1,19 @@
-# Enana — Ethiopian coffee ceremony girl that talks
+# ቡና — Enana, Suzi, Beza & Tesfanesh
 
-An animated girl in a habesha kemis performing the buna ceremony. Talk to her with your voice; she answers with Gemini.
+Four friends in habesha kemis at an Ethiopian coffee ceremony. Talk to them by voice or text:
+they answer **in turn** (እናና → ሱዚ → ቤዛ → ተስፋነሽ), **only in Amharic**, each with her own Gemini voice,
+and each starts with "እኔ [name] ነኝ።".
 
 ## Run in GitHub Codespaces
-1. Add your key as a Codespaces secret (once):
-   GitHub → Settings → Codespaces → Secrets → **New secret**
-   Name: `GEMINI_API_KEY`, value: your key, repository: this repo.
-2. On this repo page: **Code → Codespaces → Create codespace on main**.
-3. The server starts by itself and port 3000 opens in a new tab.
-   If not, run `node server.js` in the terminal, then open the **Ports** tab → globe icon on port 3000.
-4. Use Chrome or Edge, press **🎤 Talk**, allow the microphone.
+1. Add your key once: GitHub → Settings → Codespaces → Secrets → **New secret**
+   `GEMINI_API_KEY` = your key, repository: this repo.
+2. **Code → Codespaces → Create codespace on main** (or, in an existing codespace: `git pull`).
+3. Run `node server.js` if it didn't start, then open port 3000 (Ports tab → globe icon).
+4. Chrome or Edge → press **🎤 አውሩ · Talk**.
 
-## Run on your computer
-Copy `.env.example` to `.env`, paste your key, then `node server.js` and open http://localhost:3000.
+No secret? `cp .env.example .env`, paste your key into `.env` (it is git-ignored).
 
-Never commit `.env` or your API key.
+## Settings (.env or Codespaces secrets)
+- `GEMINI_MODEL` — text model (default `gemini-3.8-flash`)
+- `GEMINI_TTS_MODEL` — voice model(s), comma-separated (default `gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview`)
+- Personalities and voices: edit `GIRLS` in `server.js`.
