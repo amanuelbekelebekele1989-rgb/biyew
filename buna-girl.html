@@ -428,23 +428,38 @@
     history.push({ role: "user", text: msg });
 
     let reply, audio = null, problem = "";
+    const t0 = Date.now(), secs = () => ((Date.now() - t0) / 1000).toFixed(1) + "s";
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speaker: g.id, history: history.slice(-24) })
+        body: JSON.stringify({ speaker: g.id, history: history.slice(-24) }),
+        signal: AbortSignal.timeout(60000)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Server error");
-      reply = data.reply; audio = data.audio;
-      if (data.audioError) problem = "Voice problem: " + data.audioError + " (showing text only)";
+      reply = data.reply;
       history.push({ role: "model", speaker: g.id, text: reply });
       turn++;                         // next message goes to the next girl
+
+      // Show the words right away, then fetch her voice
+      showBubble(g, reply);
+      setStatus(`Answer in ${secs()} — ${g.en}'s voice is loading…`);
+      try {
+        const vr = await fetch("/api/tts", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ speaker: g.id, text: reply }),
+          signal: AbortSignal.timeout(60000)
+        });
+        const vd = await vr.json();
+        if (!vr.ok) throw new Error(vd.error || "voice error");
+        audio = vd.audio;
+      } catch (e) { problem = "Voice problem: " + e.message + " (showing text only)"; }
     } catch (err) {
       history.pop();
       reply = `እኔ ${g.am} ነኝ። ይቅርታ፣ አሁን መመለስ አልቻልኩም።`;
-      problem = "Problem: " + err.message + " (is server.js running? is the API key right?)";
+      problem = "Problem: " + (err.name === "TimeoutError" ? "Gemini took too long" : err.message) + " — check the codespace terminal.";
     }
-    setStatus(problem || `${g.am} (${g.en}) is talking…`);
+    setStatus(problem || `${g.am} (${g.en}) is talking… (${secs()})`);
     speak(g, reply, audio, () => {
       busy = false;
       const next = GIRLS[turn % GIRLS.length];

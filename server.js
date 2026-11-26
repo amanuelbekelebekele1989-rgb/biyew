@@ -62,13 +62,21 @@ function clean(id, text) {
     .trim();
 }
 
-async function gemini(model, body) {
-  const res = await fetch(`${API}/${model}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
-    body: JSON.stringify(body),
-  });
+async function gemini(model, body, timeoutMs = 25000) {
+  const t0 = Date.now();
+  let res;
+  try {
+    res = await fetch(`${API}/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),            // never wait forever
+    });
+  } catch (e) {
+    throw new Error(e.name === "TimeoutError" ? `${model} took longer than ${timeoutMs / 1000}s` : e.message);
+  }
   const data = await res.json();
+  console.log(`  ${model}: ${res.status} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   if (!res.ok) throw new Error(data.error?.message || `Gemini error ${res.status}`);
   return data;
 }
@@ -81,11 +89,18 @@ async function askGirl(id, history) {
       ? { role: "model", parts: [{ text: `${GIRLS[h.speaker]?.am || ""}: ${h.text.slice(0, 1500)}` }] }
       : { role: "user", parts: [{ text: h.text.slice(0, 1500) }] });
 
-  const data = await gemini(TEXT_MODEL, {
+  const req = {
     systemInstruction: { parts: [{ text: persona(id) }] },
     contents,
-    generationConfig: { maxOutputTokens: 400 },
-  });
+    generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: "low" } },  // think less = answer faster
+  };
+  let data;
+  try { data = await gemini(TEXT_MODEL, req); }
+  catch (e) {
+    if (!/think/i.test(e.message)) throw e;            // model doesn't accept thinkingLevel → ask without it
+    delete req.generationConfig.thinkingConfig;
+    data = await gemini(TEXT_MODEL, req);
+  }
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("").trim();
   return INTRO(id) + (clean(id, text || "") || "ይቅርታ፣ እንደገና ይጠይቁኝ።");
 }
@@ -112,7 +127,7 @@ async function speakAmharic(id, text) {
           responseModalities: ["AUDIO"],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: GIRLS[id].voice } } },
         },
-      });
+      }, 45000);
       const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       if (!part) throw new Error("no audio returned");
       const { mimeType = "", data: b64 } = part.inlineData;
@@ -143,13 +158,30 @@ const server = http.createServer(async (req, res) => {
         const { history, speaker } = JSON.parse(body || "{}");
         if (!GIRLS[speaker]) throw new Error("unknown speaker");
         if (!Array.isArray(history)) throw new Error("history must be an array");
+        console.log(`→ ${speaker} is answering`);
         const reply = await askGirl(speaker, history);
-        let audio = null, audioError = null;
-        try { audio = await speakAmharic(speaker, reply); }
-        catch (e) { audioError = e.message; }
-        res.end(JSON.stringify({ reply, audio, audioError }));
+        res.end(JSON.stringify({ reply }));
       } catch (err) {
         console.error(err.message);
+        res.statusCode = 500;
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/tts") {
+    let body = "";
+    req.on("data", c => { body += c; if (body.length > 20000) req.destroy(); });
+    req.on("end", async () => {
+      res.setHeader("Content-Type", "application/json");
+      try {
+        const { text, speaker } = JSON.parse(body || "{}");
+        if (!GIRLS[speaker] || typeof text !== "string") throw new Error("bad request");
+        console.log(`→ ${speaker} voice`);
+        res.end(JSON.stringify({ audio: await speakAmharic(speaker, text.slice(0, 1500)) }));
+      } catch (err) {
+        console.error("Voice failed:", err.message);
         res.statusCode = 500;
         res.end(JSON.stringify({ error: err.message }));
       }
