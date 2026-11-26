@@ -14,6 +14,6 @@ and each starts with "እኔ [name] ነኝ።".
 No secret? `cp .env.example .env`, paste your key into `.env` (it is git-ignored).
 
 ## Settings (.env or Codespaces secrets)
-- `GEMINI_MODEL` — text model (default `gemini-3.8-flash`)
+- `GEMINI_MODEL` — text model (default `gemini-3.5-flash-lite,gemini-3.6-flash,gemini-3.8-flash` — fastest first, next one used if busy)
 - `GEMINI_TTS_MODEL` — voice model(s), comma-separated (default `gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview`)
 - Personalities and voices: edit `GIRLS` in `server.js`.

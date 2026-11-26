@@ -22,7 +22,7 @@ if (fs.existsSync(envPath)) {
 
 const API_KEY = process.env.GEMINI_API_KEY;
 // Tried in order: if one model is busy (503) or slow, the next one answers.
-const TEXT_MODELS = (process.env.GEMINI_MODEL || "gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash-lite").split(",").map(s => s.trim());
+const TEXT_MODELS = (process.env.GEMINI_MODEL || "gemini-3.5-flash-lite,gemini-3.6-flash,gemini-3.8-flash").split(",").map(s => s.trim());
 const TEXT_MODEL = TEXT_MODELS.join(" → ");
 const TTS_MODELS = (process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview").split(",");
 const PORT = process.env.PORT || 3000;
@@ -99,12 +99,12 @@ async function askGirl(id, history) {
   let data, lastErr;
   for (const model of TEXT_MODELS) {
     const r = JSON.parse(JSON.stringify(req));
-    try { data = await gemini(model, r); break; }
+    try { data = await gemini(model, r, 12000); break; }
     catch (e) {
       lastErr = e;
       if (/think/i.test(e.message)) {                   // model doesn't accept thinkingLevel → ask without it
         delete r.generationConfig.thinkingConfig;
-        try { data = await gemini(model, r); break; } catch (e2) { lastErr = e2; }
+        try { data = await gemini(model, r, 12000); break; } catch (e2) { lastErr = e2; }
       }
       console.log(`  ${model} failed (${lastErr.message.slice(0, 60)}) → trying next model`);
     }
