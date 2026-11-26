@@ -151,7 +151,7 @@
   <button type="button" id="micBtn" aria-pressed="false">▶ ጀምር · Start</button>
   <canvas id="wave" aria-hidden="true"></canvas>
 </div>
-<p id="status" class="status">ጀምርን ይጫኑ፣ ከዚያ ስም ጠርተው ይናገሩ — “እናና…”፣ “ቤዛ…” ወይም ሁላችሁም። (Press Start, then call a name.)</p>
+<p id="status" class="status">ጀምርን ይጫኑ፣ ከዚያ ስም ጠርተው ይናገሩ — “እናና…”፣ “ቤዛ…” ወይም ሁላችሁም። (Press Start, then call a name — live, like Gemini.)</p>
 
 <script>
 {
@@ -339,41 +339,7 @@
   // (grass removed for a cleaner look)
 
 
-  /* ================= WAVE: live while a girl talks, gentle while listening ================= */
-  const wave = { analyser: null, fake: false, color: "#e3b23c" };
-  {
-    const cv = document.getElementById("wave"), ctx = cv.getContext("2d");
-    let buf = new Uint8Array(1024), t = 0;
-    const draw = () => {
-      const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
-      if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, W, H);
-      const mid = H / 2; t += 0.05;
-      ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath();
-      if (wave.analyser) {                           // real voice
-        if (buf.length !== wave.analyser.fftSize) buf = new Uint8Array(wave.analyser.fftSize);
-        wave.analyser.getByteTimeDomainData(buf);
-        ctx.strokeStyle = wave.color;
-        for (let i = 0; i < buf.length; i++) {
-          const x = i / (buf.length - 1) * W, y = mid + (buf[i] - 128) / 128 * mid * 1.8;
-          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-        }
-      } else {
-        const amp = wave.fake ? mid * (.35 + .3 * Math.sin(t * 7)) : (listening ? mid * .28 : 1.5);
-        ctx.strokeStyle = wave.fake ? wave.color : (listening ? "#5bb04a" : "#6b5544");
-        for (let x = 0; x <= W; x += 4) {
-          const y = mid + Math.sin(x / 28 + t * 3) * amp * Math.sin(Math.PI * x / W);
-          x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-        }
-      }
-      ctx.stroke();
-      requestAnimationFrame(draw);
-    };
-    requestAnimationFrame(draw);
-  }
-
-  /* ================= TALKING ================= */
+  /* ================= SCENE HELPERS ================= */
   const bubble = document.getElementById("bubble");
   const bubbleName = document.getElementById("bubbleName");
   const bubbleText = document.getElementById("bubbleText");
@@ -386,11 +352,13 @@
   }
   function showBubble(g, text) {
     clearTimeout(hideTimer);
-    const pct = g.x / 1000 * 100;
-    bubble.style.left = Math.min(82, Math.max(18, pct)) + "%";
+    bubble.style.left = Math.min(82, Math.max(18, g.x / 10)) + "%";
     bubbleName.textContent = g.am + " · " + g.en;
-    bubbleText.textContent = text;           // textContent: safe for AI text
+    bubbleText.textContent = text;            // textContent: safe for AI text
     bubble.classList.add("show");
+  }
+  function hideBubbleSoon() {
+    hideTimer = setTimeout(() => { bubble.classList.remove("show"); setActive(null); }, 4000);
   }
   function setMouth(g, open) {                // open: 0..1
     const el = document.getElementById("g-" + g.id);
@@ -399,200 +367,203 @@
     el.querySelector(".mo").setAttribute("ry", (1.5 + open * 4.5).toFixed(2));
   }
 
-  // Audio (one context, created on the first click so browsers allow sound)
-  let audioCtx = null;
-  function ensureAudio() {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === "suspended") audioCtx.resume();
-  }
-
-  // Speak: plays Gemini's Amharic audio and moves the girl's mouth with the sound
-  async function speak(g, text, audioB64, onDone) {
-    setActive(g); showBubble(g, text);
-    let finished = false;
-    const done = () => {
-      if (finished) return; finished = true;
-      setMouth(g, 0);
-      hideTimer = setTimeout(() => { bubble.classList.remove("show"); setActive(null); }, 5000);
-      onDone && onDone();
+  /* ================= WAVE + LIP SYNC (one animation loop) ================= */
+  const wave = { level: 0, listening: false };
+  let analyser = null, current = null;      // current = id of the girl talking now
+  {
+    const cv = document.getElementById("wave"), ctx = cv.getContext("2d");
+    let buf = new Uint8Array(1024), t = 0;
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+      if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+      const mid = H / 2; t += .05;
+      ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath();
+      if (current && analyser) {                     // a girl is talking: her real voice
+        const g = GIRLS.find(x => x.id === current);
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        ctx.strokeStyle = g.color;
+        for (let i = 0; i < buf.length; i++) {
+          const d = (buf[i] - 128) / 128; sum += d * d;
+          const x = i / (buf.length - 1) * W, y = mid + d * mid * 1.8;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+        setMouth(g, Math.min(1, Math.max(0, (Math.sqrt(sum / buf.length) - .02) * 9)));
+      } else {                                       // listening: wave follows YOUR voice
+        const amp = wave.listening ? 3 + Math.min(1, wave.level * 12) * mid * .9 : 1.5;
+        ctx.strokeStyle = wave.listening ? "#5bb04a" : "#6b5544";
+        for (let x = 0; x <= W; x += 4) {
+          const y = mid + Math.sin(x / 26 + t * 3) * amp * Math.sin(Math.PI * x / W);
+          x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+      }
+      ctx.stroke();
+      requestAnimationFrame(draw);
     };
-
-    if (audioB64 && audioCtx) {
-      try {
-        const bytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
-        const buf = await audioCtx.decodeAudioData(bytes.buffer);
-        const src = audioCtx.createBufferSource(), an = audioCtx.createAnalyser();
-        an.fftSize = 1024; src.buffer = buf; src.connect(an); an.connect(audioCtx.destination);
-        wave.analyser = an; wave.color = g.color;
-        const data = new Uint8Array(an.fftSize);
-        let raf;
-        const tick = () => {                  // lip sync from loudness
-          an.getByteTimeDomainData(data);
-          let sum = 0; for (const v of data) { const d = (v - 128) / 128; sum += d * d; }
-          const rms = Math.sqrt(sum / data.length);
-          setMouth(g, Math.min(1, Math.max(0, (rms - .02) * 9)));
-          raf = requestAnimationFrame(tick);
-        };
-        src.onended = () => { cancelAnimationFrame(raf); wave.analyser = null; done(); };
-        src.start(); tick();
-        return;
-      } catch (e) { console.error("Audio play failed", e); }
-    }
-    // No audio: animate the mouth for a reading-length time
-    let open = false;
-    wave.fake = true; wave.color = g.color;
-    const iv = setInterval(() => { open = !open; setMouth(g, open ? Math.random() * .8 + .2 : 0); }, 140);
-    setTimeout(() => { clearInterval(iv); wave.fake = false; done(); }, Math.max(2000, text.length * 90));
+    requestAnimationFrame(draw);
   }
 
-  /* ================= CONVERSATION: answer only when called by name ================= */
-  // Names as Chrome may hear them, in Amharic script and in English letters
+  /* ================= LIVE VOICE: talk to Gemini directly ================= */
+  // Names as Gemini may write them in its transcript — used as a safety check
   const CALL = {
-    enana:     /እናና|ኤናና|እናኒ|\b[eai]h?nn?ah?\b|\benana\b|\benanna\b/i,
-    suzi:      /ሱዚ|ሱዝ|\bsu[zs]+(i|y|ie|ey)\b|\bsuzie\b|\bsusie\b/i,
-    beza:      /ቤዛ|\bbe[zs]+a\b|\bbezza\b|\bbessa\b/i,
-    tesfanesh: /ተስፋነሽ|ተስፋ|\btesfa(nesh|nish)?\b|\btesfanesh\b/i,
+    enana:     /እናና|ኤናና|እናኒ|\benana\b|\benanna\b/i,
+    suzi:      /ሱዚ|ሱዝ|\bsu[zs]+(i|y|ie|ey)\b/i,
+    beza:      /ቤዛ|\bbe[zs]+a\b/i,
+    tesfanesh: /ተስፋነሽ|ተስፋ|\btesfa(nesh|nish)?\b/i,
   };
-  const EVERYONE = /ሁላችሁም|ሁላችሁ|everyone|everybody|all of you|\bguys\b/i;
+  const EVERYONE = /ሁላችሁም|ሁላችሁ|everyone|everybody|all of you/i;
 
-  function whoIsCalled(msg) {
-    if (EVERYONE.test(msg)) return GIRLS.slice();
-    return GIRLS.map(g => ({ g, m: msg.match(CALL[g.id]) }))
-      .filter(x => x.m).sort((a, b) => a.m.index - b.m.index).map(x => x.g);
+  const micBtn = document.getElementById("micBtn");
+  let running = false, sockets = {}, readyCount = 0;
+  let micStream = null, micCtx = null, outCtx = null;
+  const st = {};                     // per girl: audio queue, text, turn state
+  const order = [];                  // girls waiting to talk, in the order they started answering
+  let heard = "", heardAt = 0;
+
+  const b64 = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
+
+  function shouldMute(g) {           // a girl who wasn't called must not talk over the one who was
+    if (!heard || EVERYONE.test(heard)) return false;
+    const named = GIRLS.filter(x => CALL[x.id].test(heard));
+    return named.length > 0 && !named.includes(g);
   }
 
-  const history = [];               // {role:"user"|"model", speaker?, text}
-  let busy = false;
-  const speakAsync = (g, text, audio) => new Promise(res => speak(g, text, audio, res));
-
-  async function answerAs(g) {
-    const t0 = Date.now(), secs = () => ((Date.now() - t0) / 1000).toFixed(1) + "s";
-    setActive(g); showBubble(g, "…");
-    setStatus(`${g.am} (${g.en}) is thinking…`);
-    let reply, audio = null, problem = "";
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speaker: g.id, history: history.slice(-24) }),
-        signal: AbortSignal.timeout(60000)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Server error");
-      reply = data.reply;
-      history.push({ role: "model", speaker: g.id, text: reply });
-      showBubble(g, reply);           // words first…
-      setStatus(`Answer in ${secs()} — ${g.en}'s voice is loading…`);
-      try {                           // …then her voice
-        const vr = await fetch("/api/tts", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ speaker: g.id, text: reply }),
-          signal: AbortSignal.timeout(60000)
-        });
-        const vd = await vr.json();
-        if (!vr.ok) throw new Error(vd.error || "voice error");
-        audio = vd.audio;
-      } catch (e) { problem = "Voice problem: " + e.message + " (text only)"; }
-    } catch (err) {
-      reply = `ይቅርታ፣ አሁን መመለስ አልቻልኩም።`;
-      problem = "Problem: " + (err.name === "TimeoutError" ? "Gemini took too long" : err.message);
-    }
-    setStatus(problem || `${g.am} (${g.en}) is talking… (${secs()})`);
-    await speakAsync(g, reply, audio);
-    return problem;
-  }
-
-  async function handleMessage(msg) {
-    msg = msg.trim();
-    if (!msg || busy) return;
-    const called = whoIsCalled(msg);
-    if (!called.length) {             // no name → they stay quiet
-      setStatus(`“${msg}” — call a name first: እናና Enana, ሱዚ Suzi, ቤዛ Beza, ተስፋነሽ Tesfanesh (or ሁላችሁም = everyone).`);
+  function onGemini(g, data) {
+    let m; try { m = JSON.parse(data); } catch { return; }
+    if (m.ready) {
+      if (++readyCount === GIRLS.length) { wave.listening = true; setStatus("Listening… call a name: እናና Enana, ሱዚ Suzi, ቤዛ Beza, ተስፋነሽ Tesfanesh — or ሁላችሁም."); }
       return;
     }
-    busy = true;
-    stopListening(false);             // don't let them hear themselves
-    history.push({ role: "user", text: msg });
-    let problem = "";
-    for (const g of called) problem = (await answerAs(g)) || problem;
-    busy = false;
-    if (handsFree) startListening();
-    else if (!problem) setStatus("Call a name and speak or type again.");
-  }
+    if (m.error) { setStatus(`${g.en}: ${m.error}. Press Start again.`); return; }
+    const sc = m.serverContent; if (!sc) return;
+    const s = st[g.id];
 
-  /* ================= LISTENING (speech recognition) ================= */
-  // Chrome/Edge only, over http://localhost or https (Codespaces gives https).
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const micBtn = document.getElementById("micBtn");
-  let recLang = "am-ET";            // Amharic first; falls back to English if this browser can't hear Amharic
-  let recog = null, listening = false, handsFree = false;
-
-  if (!SR) {
-    micBtn.disabled = true;
-    setStatus("Voice needs Chrome or Edge — please open this page in Chrome.");
-  } else {
-    recog = new SR();
-    recog.interimResults = true;
-    recog.continuous = false;
-    recog.onresult = e => {
-      let text = "", final = false;
-      for (const r of e.results) { text += r[0].transcript; if (r.isFinal) final = true; }
-      setStatus("👂 Hearing: " + text);
-      if (final) handleMessage(text);
-    };
-    recog.onerror = e => {
-      if (e.error === "not-allowed") { handsFree = false; setStatus("Microphone blocked — allow mic access in the browser."); }
-      else if (e.error === "language-not-supported" && recLang !== "en-US") { recLang = "en-US"; setStatus("This browser can't hear Amharic — listening in English instead."); }
-    };
-    recog.onend = () => { listening = false; if (handsFree && !busy) startListening(); micUI(); };
-  }
-  function startListening() {
-    if (!recog || listening) return;
-    recog.lang = recLang;
-    try { recog.start(); listening = true; setStatus("Listening… call a name: Enana, Suzi, Beza or Tesfanesh."); } catch (_) {}
-    micUI();
-  }
-  function stopListening(turnOff = true) {
-    if (turnOff) handsFree = false;
-    if (recog && listening) recog.abort();
-    listening = false; micUI();
-  }
-  function micUI() {
-    micBtn.classList.toggle("on", handsFree);
-    micBtn.setAttribute("aria-pressed", handsFree);
-    micBtn.textContent = handsFree ? "■ አቁም · Stop" : "▶ ጀምር · Start";
-  }
-
-
-  // First press of Start: Enana greets out loud, which also proves the sound works
-  let greeted = false;
-  async function greet() {
-    const g = GIRLS[0], text = "እኔ እናና ነኝ። እንኳን ደህና መጡ! ስማችንን ጠርተው ያውሩን።";
-    busy = true; setStatus("Sound check — Enana is saying hello… 🔊");
-    let audio = null;
-    try {
-      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speaker: g.id, text }), signal: AbortSignal.timeout(30000) });
-      audio = (await r.json()).audio || null;
-    } catch (_) {}
-    await speakAsync(g, text, audio);
-    busy = false;
-    setStatus(audio ? "Did you hear Enana? Now call a name and talk." : "Couldn't load Enana's voice — check the codespace terminal.");
-    if (handsFree) startListening();
-  }
-
-  micBtn.addEventListener("click", () => {
-    ensureAudio();
-    if (handsFree) { stopListening(true); setStatus("Stopped. Press Start to talk again."); }
-    else {
-      handsFree = true;
-      if (!greeted) { greeted = true; greet(); }   // first Start: Enana says hello out loud (sound check)
-      else startListening();
+    if (sc.inputTranscription?.text && g.id === "enana") {        // what Gemini heard you say
+      if (Date.now() - heardAt > 2500) heard = "";
+      heard += sc.inputTranscription.text; heardAt = Date.now();
+      if (!current) setStatus("👂 " + heard.trim());
     }
-  });
+    if (sc.interrupted) { s.queue = []; if (current === g.id && !s.sources) finish(g); }
+    if (sc.modelTurn?.parts) {
+      if (s.turnDone) {                                           // a new answer starts
+        s.turnDone = false; s.text = ""; s.muted = shouldMute(g);
+        if (!s.muted && !order.includes(g.id)) order.push(g.id);
+      }
+      if (!s.muted) for (const p of sc.modelTurn.parts) if (p.inlineData?.data) s.queue.push(p.inlineData.data);
+    }
+    if (sc.outputTranscription?.text && !s.muted) {
+      s.text += sc.outputTranscription.text;
+      if (current === g.id) showBubble(g, s.text);
+    }
+    if (sc.turnComplete) s.turnDone = true;
+    pump();
+  }
 
-  // Welcome
-  setTimeout(() => { setActive(GIRLS[0]); showBubble(GIRLS[0], "እኔ እናና ነኝ። እንኳን ደህና መጡ! ስማችንን ጠርተው ያውሩን።"); }, 700);
-  window.GIRLS = GIRLS; window.speak = speak; window.ask = handleMessage; // for testing: ask("Beza, selam")
+  // Play one girl at a time; others wait their turn
+  function pump() {
+    if (!current) {
+      const next = order.find(id => st[id].queue.length);
+      if (!next) return;
+      current = next;
+      const g = GIRLS.find(x => x.id === next);
+      setActive(g); showBubble(g, st[next].text || "…");
+      setStatus(`${g.am} (${g.en}) is talking…`);
+    }
+    const g = GIRLS.find(x => x.id === current), s = st[current];
+    while (s.queue.length) {
+      const bytes = Uint8Array.from(atob(s.queue.shift()), c => c.charCodeAt(0));
+      const pcm = new Int16Array(bytes.buffer, 0, bytes.length >> 1);
+      const ab = outCtx.createBuffer(1, pcm.length, 24000);
+      const ch = ab.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+      const src = outCtx.createBufferSource();
+      src.buffer = ab; src.connect(analyser);
+      s.nextTime = Math.max(s.nextTime, outCtx.currentTime + .04);
+      src.start(s.nextTime); s.nextTime += ab.duration; s.sources++;
+      src.onended = () => { s.sources--; if (!s.sources && !s.queue.length && s.turnDone) finish(g); };
+    }
+    if (!s.sources && !s.queue.length && s.turnDone) finish(g);
+  }
+  function finish(g) {
+    if (current !== g.id) return;
+    const s = st[g.id];
+    current = null; s.nextTime = 0;
+    order.splice(order.indexOf(g.id), 1);
+    setMouth(g, 0); hideBubbleSoon();
+    heard = "";
+    if (running) setStatus("Listening… call a name.");
+    pump();                                                       // next girl, if one is waiting
+  }
+
+  async function start() {
+    running = true; micUI(); readyCount = 0;
+    setStatus("Connecting to the girls…");
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    } catch (e) {
+      setStatus("Microphone blocked — click the 🎤 icon in Chrome's address bar and allow it."); return stop(false);
+    }
+    outCtx = new AudioContext(); await outCtx.resume();
+    analyser = outCtx.createAnalyser(); analyser.fftSize = 1024; analyser.connect(outCtx.destination);
+
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    for (const g of GIRLS) {
+      st[g.id] = { queue: [], text: "", turnDone: true, muted: false, nextTime: 0, sources: 0 };
+      const ws = new WebSocket(`${proto}://${location.host}/live?girl=${g.id}`);
+      ws.onmessage = ev => onGemini(g, ev.data);
+      ws.onclose = () => { if (running && readyCount < GIRLS.length) setStatus(`Couldn't connect ${g.en} — check the codespace terminal.`); };
+      sockets[g.id] = ws;
+    }
+
+    // Microphone → 16 kHz 16-bit PCM → every girl's socket (every 100 ms)
+    micCtx = new AudioContext({ sampleRate: 16000 });
+    const worklet = "class P extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('mic',P)";
+    await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: "application/javascript" })));
+    const node = new AudioWorkletNode(micCtx, "mic");
+    let parts = [], len = 0;
+    node.port.onmessage = e => {
+      parts.push(e.data); len += e.data.length;
+      if (len < 1600) return;
+      const pcm = new Int16Array(len); let o = 0, sum = 0;
+      const quiet = !!current;          // while a girl talks, send silence so they don't hear themselves
+      for (const p of parts) for (let i = 0; i < p.length; i++) {
+        const v = quiet ? 0 : Math.max(-1, Math.min(1, p[i]));
+        sum += p[i] * p[i]; pcm[o++] = v < 0 ? v * 32768 : v * 32767;
+      }
+      wave.level = quiet ? 0 : Math.sqrt(sum / len);
+      parts = []; len = 0;
+      const msg = JSON.stringify({ realtimeInput: { audio: { data: b64(new Uint8Array(pcm.buffer)), mimeType: "audio/pcm;rate=16000" } } });
+      for (const ws of Object.values(sockets)) if (ws.readyState === 1) ws.send(msg);
+    };
+    micCtx.createMediaStreamSource(micStream).connect(node);
+    node.connect(micCtx.destination);   // keeps the worklet running (it outputs silence)
+  }
+
+  function stop(msg = true) {
+    running = false; micUI();
+    Object.values(sockets).forEach(ws => { try { ws.close(); } catch {} }); sockets = {};
+    micStream?.getTracks().forEach(t => t.stop()); micStream = null;
+    micCtx?.close(); micCtx = null; outCtx?.close(); outCtx = null; analyser = null;
+    if (current) { setMouth(GIRLS.find(x => x.id === current), 0); current = null; }
+    order.length = 0; wave.listening = false; wave.level = 0;
+    bubble.classList.remove("show"); setActive(null);
+    if (msg) setStatus("Stopped. Press Start to talk again.");
+  }
+
+  function micUI() {
+    micBtn.classList.toggle("on", running);
+    micBtn.setAttribute("aria-pressed", running);
+    micBtn.textContent = running ? "■ አቁም · Stop" : "▶ ጀምር · Start";
+  }
+  micBtn.addEventListener("click", () => running ? stop() : start());
+
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
+    micBtn.disabled = true; setStatus("This browser can't do live voice — please use Chrome.");
+  }
+
+  setTimeout(() => { setActive(GIRLS[0]); showBubble(GIRLS[0], "እኔ እናና ነኝ። እንኳን ደህና መጡ! ጀምርን ይጫኑ፣ ከዚያ ስማችንን ጠርተው ያውሩን።"); }, 700);
+  window.GIRLS = GIRLS;   // handy in the console
 }
 </script>
 </body>

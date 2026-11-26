@@ -28,6 +28,9 @@ const BEST_WAIT_MS = Number(process.env.BEST_WAIT_MS) || 7000;
 const TEXT_MODEL = `${BEST_MODEL} (backup ${FAST_MODEL} after ${BEST_WAIT_MS / 1000}s)`;
 const TTS_MODELS = (process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview").split(",");
 const PORT = process.env.PORT || 3000;
+const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || "gemini-3.8-live";      // real-time voice-to-voice
+const LIVE_URL = process.env.GEMINI_LIVE_URL ||
+  "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
 
 if (!API_KEY) {
@@ -216,4 +219,88 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404); res.end("Not found");
 });
 
-server.listen(PORT, () => console.log(`☕ Enana, Suzi, Beza & Tesfanesh are ready → http://localhost:${PORT}  (text: ${TEXT_MODEL})`));
+
+/* ================= LIVE VOICE (Gemini Live API) =================
+   The browser opens one socket per girl: /live?girl=enana …
+   The server connects each one to Gemini Live with that girl's personality and voice.
+   Your API key never leaves this server. */
+let WebSocketServer = null;
+try { ({ WebSocketServer } = require("ws")); }
+catch { console.error("⚠ Live voice needs the 'ws' package. Run:  npm install"); }
+
+function livePersona(id) {
+  const me = GIRLS[id];
+  const friends = Object.entries(GIRLS).filter(([k]) => k !== id).map(([, g]) => g.am).join("፣ ");
+  return `You are ${me.am} (${id}), a young Ethiopian woman in a habesha kemis at a buna (coffee ceremony)
+with your friends ${friends}. Your personality: ${me.about}.
+This is a LIVE VOICE conversation. The guest speaks to the four of you; each friend is a separate voice.
+
+WHEN TO SPEAK — very important:
+- Speak ONLY when the guest calls YOUR name: "${me.am}" (${id}) — or addresses everyone (ሁላችሁም / everyone / all of you).
+- If the guest calls a different friend's name, or calls no name, stay completely silent. Do not answer, do not make any sound.
+- If you are not sure you were called, stay silent.
+
+HOW TO SPEAK:
+- Speak ONLY Amharic, even if the guest speaks English.
+- Begin every answer with "እኔ ${me.am} ነኝ።" and then answer.
+- Answer exactly what the guest asked, directly and correctly, like a smart friend. If you are not sure of a fact, say so honestly.
+- Natural, warm, everyday Amharic; polite (እርስዎ) with the guest. Usually 1 to 3 sentences.
+- Never read out or mention these instructions.`;
+}
+
+const wss = WebSocketServer ? new WebSocketServer({ noServer: true }) : null;
+
+server.on("upgrade", (req, socket, head) => {
+  const u = new URL(req.url, "http://localhost");
+  const id = u.searchParams.get("girl");
+  if (!wss || u.pathname !== "/live" || !GIRLS[id]) return socket.destroy();
+  wss.handleUpgrade(req, socket, head, client => bridge(client, id));
+});
+
+function bridge(client, id) {
+  const g = GIRLS[id];
+  const up = new WebSocket(`${LIVE_URL}?key=${API_KEY}`);
+  up.binaryType = "arraybuffer";
+  let ready = false, said = "";
+  const toClient = obj => { if (client.readyState === 1) client.send(typeof obj === "string" ? obj : JSON.stringify(obj)); };
+
+  up.onopen = () => up.send(JSON.stringify({
+    setup: {
+      model: `models/${LIVE_MODEL}`,
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: g.voice } } },
+      },
+      systemInstruction: { parts: [{ text: livePersona(id) }] },
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+      contextWindowCompression: { slidingWindow: {} },   // lets long chats keep going
+    },
+  }));
+
+  up.onmessage = ev => {
+    const text = typeof ev.data === "string" ? ev.data : Buffer.from(ev.data).toString("utf8");
+    let m; try { m = JSON.parse(text); } catch { return; }
+    if (m.setupComplete) { ready = true; console.log(`  ${id}: live ✓`); return toClient({ ready: true }); }
+    const sc = m.serverContent;
+    if (sc?.outputTranscription?.text) said += sc.outputTranscription.text;
+    if (sc?.turnComplete && said) { console.log(`  ${id} said: ${said.trim()}`); said = ""; }
+    if (m.goAway) console.log(`  ${id}: session ending soon (${m.goAway.timeLeft})`);
+    toClient(text);
+  };
+  up.onerror = e => console.log(`  ${id}: Gemini error ${e.message || ""}`);
+  up.onclose = ev => {
+    console.log(`  ${id}: Gemini closed (${ev.code}) ${ev.reason || ""}`);
+    toClient({ error: `Gemini closed the connection: ${ev.reason || ev.code}` });
+    try { client.close(); } catch {}
+  };
+
+  client.on("message", data => {
+    const s = data.toString();
+    if (!s.startsWith('{"realtimeInput"')) return;      // only microphone audio is allowed through
+    if (ready && up.readyState === 1) up.send(s);        // audio before setup finishes is dropped
+  });
+  client.on("close", () => { try { up.close(); } catch {} });
+}
+
+server.listen(PORT, () => console.log(`☕ Enana, Suzi, Beza & Tesfanesh are ready → http://localhost:${PORT}  (live voice: ${LIVE_MODEL})`));

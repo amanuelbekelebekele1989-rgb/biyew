@@ -1,0 +1,7 @@
+{
+  "name": "biyew",
+  "private": true,
+  "description": "Enana, Suzi, Beza & Tesfanesh — live Amharic voice chat with Gemini",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}
